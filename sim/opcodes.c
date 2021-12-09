@@ -137,3 +137,26 @@ void halt(unsigned int rd, unsigned int rs, unsigned int rt, core* current_core)
 {
 	current_core->PC = MAX_IMEM_SIZE + 1;
 }
+
+//sets the values of the instruction functions pointers in an array
+void(*inst_Func_Array[NUM_OF_OPCODES])(unsigned int, unsigned int, unsigned int) = {
+	{&add},
+	{&sub},
+	{&and},
+	{&or },
+	{&xor},
+	{&mul},
+	{&sll},
+	{&sra},
+	{&srl},
+	{&beq},
+	{&bne},
+	{&blt},
+	{&bgt},
+	{&ble},
+	{&bge},
+	{&jal},
+	{&lw},
+	{&sw},
+	{&halt}
+};
