@@ -16,7 +16,7 @@
 #define CACHE_SIZE 256
 #define NUMBER_OF_BLOCKS 64
 #define IMEM_LINE_SIZE 12       // 10 bits +  \n + \'0'
-
+#define NUM_OF_OPCODES 19
 //--------------Files decleration:---------------------
 
 FILE *imem0;
