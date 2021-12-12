@@ -115,10 +115,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="brigde.c" />
+    <ClCompile Include="bus.c" />
+    <ClCompile Include="cache.c" />
     <ClCompile Include="core.c" />
     <ClCompile Include="pipeline_functions.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="bridge.h" />
+    <ClInclude Include="bus.h" />
     <ClInclude Include="cache.h" />
     <ClInclude Include="core.h" />
     <ClInclude Include="pipeline.h" />

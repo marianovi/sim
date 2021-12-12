@@ -9,6 +9,16 @@
 #define PIPLINE_LENGTH 5
 #define CORE_NUM 4
 
+typedef enum opcodes {
+	ADD, SUB, AND,
+	OR, XOR, MUL,
+	SLL, SRA, SRL,
+	BEQ, BNE, BLT,
+	BGT, BLE, BGE,
+	JAL, LW, SW,
+	HALT = 20
+}opcodes;
+
 //Instructions structure:
 typedef struct imemin_command {
 	unsigned int opcode; // 8 bits

@@ -77,6 +77,65 @@ void loadRegsForExecute(Core* core) {
 		core->new_state_Reg->id_ex->B = core->current_state_Reg->privateRegisters[core->current_state_Reg->if_id->IR->rt];
 }
 
+bool check_if_Data_Hazard(Instruction *Inst_to_check, Instruction *Rd_inst) {
+	if (Rd_inst->rd == 0 || Rd_inst->rd == 1 ||
+		(Rd_inst->opcode >= 9 && Rd_inst->opcode <= 15) || Rd_inst->opcode == 17) // branch instructions or sw -> Rd doesn't change - no hazard
+		return false;
+	if (Inst_to_check->opcode != 15 || (Inst_to_check->opcode != 20)) // not halt/jal instruction data- optional hazard in rs/rt
+		if (Inst_to_check->rs == Rd_inst->rd || Inst_to_check->rt == Rd_inst->rd)
+			return true;
+	if ((Inst_to_check->opcode >= 9 && Inst_to_check->opcode <= 15) || Inst_to_check->opcode == 17) /*
+																	for branches and sw to validate that rd was written before the instruction*/ 
+		if (Inst_to_check->rd == Rd_inst->rd)
+			return true;
+	return false;
+}
+
+
+StallData findDataHazards(PipelineStages stage, Core* core) {
+	StallData data;
+	data.active = false;
+	if (check_if_Data_Hazard(core->current_state_Reg->if_id->IR, core->current_state_Reg->id_ex->IR)) {
+		data.active = true;
+		data.cyclesToStall = 3;
+	}
+	else if (core->state.memoryExecuted && check_if_Data_Hazard(core->current_state_Reg->if_id->IR, core->current_state_Reg->ex_mem->IR)) {
+		data.active = true;
+		data.cyclesToStall = 2;
+	}
+	else if (core->state.writeBackExecuted && check_if_Data_Hazard(core->current_state_Reg->if_id->IR, core->current_state_Reg->mem_wb->IR)) {
+		data.active = true;
+		data.cyclesToStall = 1;
+	}
+	return data;
+}
+
+int runALU(int opcode, int A, int B) {
+	switch (opcode) {
+	case 0://ADD
+		return A + B;
+	case 1://SUB
+		return A - B;
+	case 2://AND
+		return A & B;
+	case 3://OR
+		return A | B;
+	case 4://XOR
+		return A ^ B;
+	case 5://MUL
+		return A * B;
+	case 6://SLL
+		return A << B;
+	case 7://SRA
+		return sign_extention(A >> B);
+	case 8://SRL
+		return A >> B;
+	default:
+		return A + B;// for memory address
+	}
+	return 0;
+}
+
 
 //Public functions:
 
@@ -126,4 +185,99 @@ void Decode(CoreRegisters* currentRegisters, Core* current_core, StallData* stal
 
 	loadRegsForExecute(current_core);
 	branchResolution(current_core);
+}
+
+void EX(CoreRegisters* current_Reg, Core* current_core, StallData* stallData) {
+	if (!current_core->state.doExecute) {
+		current_core->state.executeExecuted = false;
+		return;
+	}
+	if (stallData[MEMORY].active || stallData[WRITE_BACK].active) { // stalls in memory / write back
+		if (stallData[EXECUTE].active) { // is stall in execute as well make sure trace is ---
+			current_core->state.executeExecuted = false;
+		}
+		return;
+	}
+	if (stallData[EXECUTE].active) { // if stalling in execute
+		current_core->coreStatistics.decode_stall++; // number of cycles a pipeline stall was inserted in decode stage
+		current_core->new_state_Reg->ex_mem->isStall = true; // stall next memory
+		current_core->state.executeExecuted = false;
+		if ((--stallData[EXECUTE].cyclesToStall) == 0)
+			stallData[EXECUTE].active = false;
+		return;
+	}
+	stallData[EXECUTE] = findDataHazards(EXECUTE, current_core);
+
+	current_core->new_state_Reg->ex_mem->PC = current_Reg->id_ex->PC;
+	current_core->new_state_Reg->ex_mem->IR = current_Reg->id_ex->IR;
+	current_core->new_state_Reg->ex_mem->isStall = false;
+
+	if (current_Reg->id_ex->PC == -1) { // empty pipeline after halt
+		current_core->state.executeExecuted = false;
+		return;
+	}
+	if (current_Reg->id_ex->IR->opcode == 20) { // reached halt
+		current_core->state.doMemory = true;
+		current_core->state.executeExecuted = true;
+		current_core->state.executeExecuted = true;
+		current_core->state.doExecute = false;
+		return;
+	}
+	if (!current_core->state.doDecode) {
+		current_core->state.doExecute = false;
+	}
+	current_core->state.doMemory = true;
+	current_core->state.executeExecuted = true;
+	if ((current_Reg->id_ex->IR->opcode >= 0 && current_Reg->id_ex->IR->opcode <= 8) || (current_Reg->id_ex->IR->opcode >= 16 && current_Reg->id_ex->IR->opcode <= 19)) { /*arithmetic instructions*/
+		current_core->new_state_Reg->ex_mem->ALUOutput = runALU(current_Reg->id_ex->IR->opcode,
+			current_Reg->id_ex->A, current_Reg->id_ex->B);
+	}
+}
+
+// MANY DEPENDENCIES - first we have to finish with cache and bus
+void MEM(CoreRegisters* current_Reg, Core* current_core, StallData* stallData, int cycleNumber) {
+	bool isStall = false;
+	if (!current_core->state.doMemory) {
+		current_core->state.memoryExecuted = false;
+		return;
+	}
+	if (current_Reg->ex_mem->isStall) { // stalling from execute - move bubble down the pipeline
+		current_core->state.memoryExecuted = false;
+		current_core->new_state_Reg->mem_wb->isStall = true;
+		return;
+	}
+
+	if (stallData[MEMORY].active) {  // stall in memory 
+		current_core->new_state_Reg->mem_wb->isStall = true;
+		current_core->state.memoryExecuted = true;
+		handle_load_store(current_core, cycleNumber, stallData);
+		return;
+	}
+
+	current_core->new_state_Reg->mem_wb->isStall = false;
+	current_core->new_state_Reg->mem_wb->IR = current_Reg->ex_mem->IR;
+	current_core->new_state_Reg->mem_wb->PC = current_Reg->ex_mem->PC;
+	if (current_Reg->ex_mem->PC == -1) { // empty pipeline
+		current_core->state.memoryExecuted = false;
+		return;
+	}
+
+	if (current_Reg->ex_mem->IR->opcode == 20) { // reached halt
+		current_core->state.doWriteBack = true;
+		current_core->state.memoryExecuted = true;
+		current_core->state.memoryExecuted = true;
+		current_core->state.doMemory = false;
+		return;
+	}
+	if (!current_core->state.doExecute) {
+		current_core->state.doMemory = false;
+	}
+
+	current_core->state.doWriteBack = true;
+	current_core->state.memoryExecuted = true;
+	current_core->new_state_Reg->mem_wb->ALUOutput = current_Reg->ex_mem->ALUOutput;
+
+	if (current_core->current_state_Reg->ex_mem->IR->opcode >= 16 && current_core->current_state_Reg->ex_mem->IR->opcode <= 19) { // lw, sw, ll, sc
+		handle_load_store(current_core, cycleNumber, stallData);
+	}
 }
