@@ -137,6 +137,31 @@ int runALU(int opcode, int A, int B) {
 }
 
 
+void handle_load_store(Core* current_core, int num_of_cycle, StallData* stallData)
+{
+	bool isStall = false;
+	int result_LL;
+	current_core->new_state_Reg->mem_wb->LMD = request(current_core->Cache,
+		current_core->current_state_Reg->ex_mem->IR->opcode,
+		current_core->current_state_Reg->ex_mem->ALUOutput, current_core->current_state_Reg->privateRegisters[current_core->current_state_Reg->ex_mem->IR->rd],
+		current_core->coreID, num_of_cycle,
+		&isStall, &result_LL);
+	if (current_core->current_state_Reg->ex_mem->IR->opcode == 19) //sc
+	{
+		current_core->new_state_Reg->mem_wb->ALUOutput = result_LL;
+	}
+	if (isStall) 
+	{
+		stallData[MEMORY].active = true;
+		current_core->new_state_Reg->mem_wb->isStall = true;
+	}
+	else 
+	{
+		stallData[MEMORY].active = false;
+		current_core->new_state_Reg->mem_wb->isStall = false;
+	}
+}
+
 //Public functions:
 
 
